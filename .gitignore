@@ -11,3 +11,7 @@ __pycache__
 *.venv
 venv/
 *.ipynb
+.vscode/
+.idea/
+*.DS_Store
+.cursor/
