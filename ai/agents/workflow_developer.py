@@ -6,6 +6,8 @@ import traceback
 from datetime import datetime
 from ai.llm.inference import run_inference
 from ai.agents.agent_maker import create_agent
+from ai.agents.config_maker import generate_config_file  # Add this import
+
 
 # Define the input schema
 INPUT_SCHEMA = {
@@ -228,10 +230,26 @@ Each step includes error handling and will return a JSON response with:
             f.write(readme_content)
         steps.append("✓ Created README")
         
-        # Step 6: Create requirements.txt
+        # Step 6: Generate config Python file via OpenAI
+        steps.append("Creating workflow_config.py with OpenAI...")
+        config_result = generate_config_file(workflow_design, model_name=model_name)
+
+        if config_result["status"] == "error":
+            config_error = f"✗ Failed to create workflow_config.py: {config_result['error']}"
+            errors.append(config_error)
+            steps.append(config_error)
+        else:
+            steps.append(f"✓ Created workflow_config.py at {config_result['config_path']}")
+        
+        # Step 7: Create requirements.txt
         steps.append("Creating requirements.txt...")
         requirements_path = os.path.join(project_dir, "requirements.txt")
         print(f"Creating requirements at: {os.path.abspath(requirements_path)}")  # Debug print
+        
+        requirements_content = f"""# Core requirements requests>=2.31.0 python-dotenv>=1.0.0{chr(10).join(f'# {intg.title()} requirements{chr(10)}{chr(10).join(f"{pkg}>=0.0.0" for pkg in details["packages"])}{chr(10)}' for intg, details in integrations.items())}"""
+        with open(requirements_path, 'w') as f:
+            f.write(requirements_content)
+        steps.append("✓ Created requirements.txt")
         
         requirements_content = f"""# Core requirements
 requests>=2.31.0
@@ -246,15 +264,17 @@ python-dotenv>=1.0.0
         
         # Step 7: Prepare success response
         structure = {
-            "workflows": {
-                project_name: {
-                    "agents": {f: None for f in agent_files},
-                    "workflow_config.json": None,
-                    "README.md": None,
-                    "requirements.txt": None
-                }
-            }
+    "workflows": {
+        project_name: {
+            "agents": {f: None for f in agent_files},
+            "workflow_config.json": None,
+            "workflow_config.py": None,
+            "README.md": None,
+            "requirements.txt": None
         }
+    }
+}
+
         
         result = {
             "project_name": project_name,
