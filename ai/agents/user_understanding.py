@@ -75,6 +75,9 @@ is_workflow_build_approved: boolean
 do_we_have_enough_information_to_develop_workflow: boolean
 do_we_have_enough_information_to_design_workflow: boolean
 do_we_have_enough_information_to_run_workflow: boolean
+
+Do not incude any markdown. Do not include any other text. Do not include ```json```. 
+The output should be readable by json.loads().
 """
 
 model_name = "gpt-4o"

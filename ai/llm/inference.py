@@ -90,6 +90,7 @@ def run_inference(messages: list[dict], model_name: str) -> str:
             for msg in messages:
                 # Gemini API expects 'model' for assistant role.
                 role = "model" if msg["role"].lower() == "assistant" else msg["role"].lower()
+                role = "user" if role == "system" else role
                 # Ensure roles are only 'user' or 'model'
                 if role not in ["user", "model"]:
                     print(f"Warning: Skipping message with unhandled role '{msg['role']}' for Gemini.")
