@@ -82,23 +82,100 @@ The output should be readable by json.loads().
 
 model_name = "gpt-4o"
 
-def get_user_understanding(messages: List[Dict[str, Any]], model_name=model_name) -> Dict[str, Any]:
+def get_user_understanding(messages: List[Dict[str, Any]], model_name=model_name) -> str:
     """
     Get user understanding from the input messages.
+    Returns a JSON string that can be parsed with json.loads()
     """
-    # Format system message with schemas
-    
     # Add system message at the start
     full_messages = [{"role": "system", "content": SYSTEM}] + messages
     
     # attempt 3 times
-    for _ in range(3):
+    for attempt in range(3):
         try:
-            return run_inference(full_messages, model_name=model_name)
+            response = run_inference(full_messages, model_name=model_name)
+            
+            # Create a dictionary with the required structure
+            result = {
+                "user_understanding": "",
+                "problem_understanding": "",
+                "workflow_tech_understanding": "",
+                "user_tech_list": [],
+                "required_tech_list": [],
+                "user_last_message_intent": "",
+                "clarification_questions": [],
+                "is_user_clarification_needed": False,
+                "is_workflow_design_approved": False,
+                "is_workflow_build_approved": False,
+                "do_we_have_enough_information_to_develop_workflow": False,
+                "do_we_have_enough_information_to_design_workflow": False,
+                "do_we_have_enough_information_to_run_workflow": False
+            }
+            
+            # Try to extract information from the response
+            try:
+                # First try to parse as JSON
+                parsed = json.loads(response)
+                result.update(parsed)
+            except json.JSONDecodeError:
+                # If not JSON, try to extract information from text
+                lines = response.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    # Try to match key-value pairs
+                    if ':' in line:
+                        key, value = line.split(':', 1)
+                        key = key.strip().lower().replace(' ', '_')
+                        value = value.strip()
+                        
+                        # Map the key to our schema
+                        if key in result:
+                            if isinstance(result[key], list):
+                                # Handle lists
+                                if value.startswith('[') and value.endswith(']'):
+                                    try:
+                                        result[key] = json.loads(value)
+                                    except:
+                                        result[key] = [v.strip() for v in value[1:-1].split(',')]
+                                else:
+                                    result[key] = [value]
+                            elif isinstance(result[key], bool):
+                                # Handle booleans
+                                result[key] = value.lower() in ['true', 'yes', '1']
+                            else:
+                                # Handle strings
+                                result[key] = value
+            
+            # Convert to JSON string
+            return json.dumps(result, ensure_ascii=False)
+                    
         except Exception as e:
-            print(f"Error: {e}")
-            error_message = f"When we ran LLM, this error occurred. Please fix your response and comply with the output schema. Error: {e}"
-            messages.append({"role": "assistant", "content": error_message})
+            print(f"Attempt {attempt + 1}: Error: {e}")
+            error_message = {
+                "role": "assistant",
+                "content": f"An error occurred. Please provide your response in a clear format with key-value pairs. Error: {e}"
+            }
+            messages.append(error_message)
+            continue
     
-    raise Exception("Failed to get user understanding after 3 attempts")
+    # If all attempts fail, return default response
+    default_response = {
+        "user_understanding": "Error: Could not parse user understanding",
+        "problem_understanding": "Error: Could not parse problem understanding",
+        "workflow_tech_understanding": "Error: Could not parse workflow tech understanding",
+        "user_tech_list": [],
+        "required_tech_list": [],
+        "user_last_message_intent": "Error: Could not parse intent",
+        "clarification_questions": ["Could you please rephrase your request?"],
+        "is_user_clarification_needed": True,
+        "is_workflow_design_approved": False,
+        "is_workflow_build_approved": False,
+        "do_we_have_enough_information_to_develop_workflow": False,
+        "do_we_have_enough_information_to_design_workflow": False,
+        "do_we_have_enough_information_to_run_workflow": False
+    }
+    return json.dumps(default_response, ensure_ascii=False)
 
