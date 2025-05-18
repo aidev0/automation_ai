@@ -4,6 +4,8 @@ from typing import List, Dict, Any
 from datetime import datetime
 import re # For sanitizing filenames
 from ai.llm.inference import run_inference
+from ai.db.mongodb import create_agent
+from ai.db.schema import Agent
 import requests
 
 def generate_unique_project_name(workflow_design_steps: List[Dict[str, Any]]) -> str:
@@ -24,11 +26,26 @@ def generate_unique_project_name(workflow_design_steps: List[Dict[str, Any]]) ->
     return f"{action_label}_{timestamp}"
 
 def create_agent_file(step: Dict[str, Any], agent_file_path: str, model_name: str = "gpt-4o") -> Dict[str, Any]:
-    """Creates an agent file using LLM to generate the code."""
+    """Creates an agent file using LLM to generate the code and registers it in the database."""
     steps_log = []
     errors_log = []
     
     try:
+        # Add default input schema if not provided
+        if "input_schema" not in step:
+            step["input_schema"] = {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        }
+                    }
+                },
+                "required": ["items"]
+            }
+            
         # Generate agent code using LLM
         messages = [
             {"role": "system", "content": """You are an expert Python developer specializing in creating workflow agents.
@@ -69,7 +86,7 @@ def create_agent_file(step: Dict[str, Any], agent_file_path: str, model_name: st
                 "required": ["items"]
             }
 
-            # Output Schema
+            # Output Schema (Standard for all agents)
             OUTPUT_SCHEMA = {
                 "type": "object",
                 "properties": {
@@ -77,10 +94,7 @@ def create_agent_file(step: Dict[str, Any], agent_file_path: str, model_name: st
                     "data": {
                         "type": "array",
                         "items": {
-                            "type": "object",
-                            "properties": {
-                                # Define output properties based on step output_schema_description
-                            }
+                            "type": "object"
                         }
                     },
                     "error": {"type": "string", "nullable": true}
@@ -197,8 +211,8 @@ def create_agent_file(step: Dict[str, Any], agent_file_path: str, model_name: st
             1. Use the step's label for AGENT_NAME
             2. Use the step's description for AGENT_DESCRIPTION
             3. Extract env vars from step's integrations
-            4. Parse input_schema_description and output_schema_description into proper JSON schemas
-            5. Include input/output validation in process_step
+            4. Parse input_schema_description into proper JSON schema
+            5. Include input validation in process_step
             6. No example usage or test code
             7. No explanations or docstrings
             8. No markdown formatting
@@ -240,6 +254,7 @@ def create_agent_file(step: Dict[str, Any], agent_file_path: str, model_name: st
             {"role": "user", "content": json.dumps({"step": step}, ensure_ascii=False)}
         ]
         agent_code = run_inference(messages, model_name)
+        print("\n=== LLM Agent Code Response ===\n" + agent_code + "\n")
         
         # Clean up any markdown code blocks or extra text
         agent_code = agent_code.replace("```python", "").replace("```", "").strip()
@@ -252,6 +267,44 @@ def create_agent_file(step: Dict[str, Any], agent_file_path: str, model_name: st
             f.write(agent_code)
             
         steps_log.append(f"✓ Created agent file: {os.path.basename(agent_file_path)}")
+
+        # Register agent in database
+        agent = Agent(
+            _id=str(datetime.utcnow().timestamp()),  # Use timestamp as ID
+            timestamp=datetime.utcnow(),
+            name=step["label"],
+            description=step["description"],
+            task=step["description"],
+            integrations=step["integrations"],
+            user_id=step.get("user_id", "system"),
+            system=step.get("system", ""),
+            model_name=model_name,
+            input_schema=step["input_schema"],
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["success", "error"]},
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        }
+                    },
+                    "error": {"type": "string", "nullable": true}
+                },
+                "required": ["status", "data"]
+            },
+            readme_md=step.get("readme", ""),
+            code=agent_code,
+            code_language="python",
+            command=f"python {agent_file_path}",
+            env_list=step.get("env_list", [])
+        )
+
+        # Push to database
+        create_agent(agent.dict())
+        steps_log.append(f"✓ Registered agent in database: {step['label']}")
+            
         return {
             "path": agent_file_path,
             "status": "success",
@@ -509,29 +562,123 @@ if __name__ == '__main__':
             "label": "Email Fetcher",
             "description": "Fetches new emails from a Gmail account based on specified criteria, then uploads attachments to a designated Google Drive folder.",
             "integrations": ["gmail", "google-drive"],
-            "input_schema_description": "{'max_emails': int, 'filter_subject': Optional[str], 'drive_folder_id': str}",
-            "output_schema_description": "{'fetched_emails_count': int, 'attachments_uploaded_count': int, 'processed_email_ids': List[str]}"
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "max_emails": {"type": "integer"},
+                    "filter_subject": {"type": "string", "nullable": true},
+                    "drive_folder_id": {"type": "string"}
+                },
+                "required": ["drive_folder_id"]
+            },
+            "output_schema": {
+                "type": "object",
+                "properties": {
+                    "fetched_emails_count": {"type": "integer"},
+                    "attachments_uploaded_count": {"type": "integer"},
+                    "processed_email_ids": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    }
+                },
+                "required": ["fetched_emails_count", "attachments_uploaded_count", "processed_email_ids"]
+            }
         },
         {
             "label": "Content Summarizer & Keyword Extractor",
             "description": "Summarizes the content of the fetched emails and extracts keywords using OpenAI's GPT model. Stores results in a local SQLite database.",
             "integrations": ["openai", "sqlite"],
-            "input_schema_description": "{'email_bodies': List[Dict{'id':str, 'body':str}]}",
-            "output_schema_description": "{'results': List[Dict{'id':str, 'summary':str, 'keywords':List[str]}], 'db_path': str}"
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "email_bodies": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "body": {"type": "string"}
+                            },
+                            "required": ["id", "body"]
+                        }
+                    }
+                },
+                "required": ["email_bodies"]
+            },
+            "output_schema": {
+                "type": "object",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "summary": {"type": "string"},
+                                "keywords": {
+                                    "type": "array",
+                                    "items": {"type": "string"}
+                                }
+                            },
+                            "required": ["id", "summary", "keywords"]
+                        }
+                    },
+                    "db_path": {"type": "string"}
+                },
+                "required": ["results", "db_path"]
+            }
         },
         {
             "label": "Slack Notifier",
             "description": "Sends notifications with summaries and direct links to Slack for urgent emails.",
             "integrations": ["slack"],
-            "input_schema_description": "{'urgent_summaries': List[Dict{'summary':str, 'original_email_link':str}], 'slack_channel_id': str}",
-            "output_schema_description": "{'notifications_sent_count': int, 'failed_notifications_count': int}"
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "urgent_summaries": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "summary": {"type": "string"},
+                                "original_email_link": {"type": "string"}
+                            },
+                            "required": ["summary", "original_email_link"]
+                        }
+                    },
+                    "slack_channel_id": {"type": "string"}
+                },
+                "required": ["urgent_summaries", "slack_channel_id"]
+            },
+            "output_schema": {
+                "type": "object",
+                "properties": {
+                    "notifications_sent_count": {"type": "integer"},
+                    "failed_notifications_count": {"type": "integer"}
+                },
+                "required": ["notifications_sent_count", "failed_notifications_count"]
+            }
         },
         {
             "label": "Report Generator",
             "description": "Generates a daily PDF report from the SQLite database data and emails it.",
             "integrations": ["sqlite", "smtp", "pdf-library"],
-            "input_schema_description": "{'report_date': str, 'recipient_email': str}",
-            "output_schema_description": "{'report_path': str, 'email_sent_status': bool}"
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "report_date": {"type": "string"},
+                    "recipient_email": {"type": "string"}
+                },
+                "required": ["report_date", "recipient_email"]
+            },
+            "output_schema": {
+                "type": "object",
+                "properties": {
+                    "report_path": {"type": "string"},
+                    "email_sent_status": {"type": "boolean"}
+                },
+                "required": ["report_path", "email_sent_status"]
+            }
         }
     ]
 
