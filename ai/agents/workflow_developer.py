@@ -482,7 +482,7 @@ def create_workflow_project(
         print(f"\n✗ CRITICAL ERROR: {error_msg}")
         return overall_status
 
-def develop_workflow_entry_point(workflow_design: List[Dict[str, Any]], model_name: str = "gpt-4o") -> str:
+def run_develop_workflow(workflow_design: List[Dict[str, Any]], model_name: str = "gpt-4o") -> str:
     """
     Main entry point to develop the workflow.
     Returns a JSON string summarizing the outcome.
