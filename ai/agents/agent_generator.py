@@ -3,6 +3,9 @@ import json
 import logging
 import requests
 from typing import Dict, Any, List
+from datetime import datetime
+from ai.db.mongodb import create_agent
+from ai.db.schema import Agent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -247,54 +250,51 @@ def generate_agent_code(step: Dict[str, Any], model_name: str = "gpt-4o") -> str
             7. Include actual LLM calls with proper parameters
             8. Handle rate limits and retries if needed
             9. Log LLM interactions
-
-            Output only the Python code for the agent file. Do not include any markdown or explanatory text outside the code."""},
-            {"role": "user", "content": json.dumps({"step": step}, ensure_ascii=False)}
+            """},
+            {"role": "user", "content": json.dumps(step, ensure_ascii=False)}
         ]
-        
-        agent_code = run_inference(messages, model_name)
-        
-        # Clean up any markdown code blocks or extra text
-        agent_code = agent_code.replace("```python", "").replace("```", "").strip()
-        
-        return agent_code
-        
+
+        return run_inference(messages, model_name=model_name)
+
     except Exception as e:
         logger.error(f"Failed to generate agent code: {str(e)}")
         raise
 
 def create_agent_file(step: Dict[str, Any], agent_file_path: str, model_name: str = "gpt-4o") -> Dict[str, Any]:
-    """Creates an agent file using the generated code."""
-    steps_log = []
-    errors_log = []
-    
+    """Create agent file and return agent metadata."""
     try:
         # Generate agent code
-        agent_code = generate_agent_code(step, model_name)
-        
-        # Write the file
-        output_dir = os.path.dirname(agent_file_path)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-        with open(agent_file_path, 'w', encoding="utf-8") as f:
-            f.write(agent_code)
-            
-        steps_log.append(f"✓ Created agent file: {os.path.basename(agent_file_path)}")
-        return {
-            "path": agent_file_path,
-            "status": "success",
-            "error": "",
-            "steps_log": steps_log,
-            "errors_log": errors_log
-        }
+        code = generate_agent_code(step, model_name=model_name)
+
+        # Write code to file
+        with open(agent_file_path, "w") as f:
+            f.write(code)
+
+        # Create agent metadata
+        agent = Agent(
+            _id=str(datetime.utcnow().timestamp()),  # Use timestamp as ID
+            timestamp=datetime.utcnow(),
+            name=step["label"],
+            description=step["description"],
+            task=step["description"],
+            integrations=step["integrations"],
+            user_id=step.get("user_id", "system"),
+            system=step.get("system", ""),
+            model_name=model_name,
+            input_schema=json.loads(step["input_schema_description"]),
+            output_schema=json.loads(step["output_schema_description"]),
+            readme_md=step.get("readme", ""),
+            code=code,
+            code_language="python",
+            command=f"python {agent_file_path}",
+            env_list=step.get("env_list", [])
+        )
+
+        # Push to database
+        create_agent(agent.dict())
+
+        return agent.dict()
+
     except Exception as e:
-        error_msg = f"Failed to create agent file {os.path.basename(agent_file_path)}: {str(e)}"
-        errors_log.append(error_msg)
-        steps_log.append(f"✗ {error_msg}")
-        return {
-            "path": agent_file_path,
-            "status": "error",
-            "error": error_msg,
-            "steps_log": steps_log,
-            "errors_log": errors_log
-        }
+        logger.error(f"Failed to create agent file: {str(e)}")
+        raise
