@@ -1,58 +1,30 @@
 import os
 import json
 import logging
-import requests
 from typing import Dict, Any, List
+from datetime import datetime
+import requests
+from ai.db.mongodb import get_db
+from ai.llm.inference import run_inference
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def run_inference(messages: List[Dict[str, str]], model_name: str = "gpt-4o") -> str:
-    """Run inference using OpenAI's API."""
-    try:
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable not set")
-
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-
-        data = {
-            "model": model_name,
-            "messages": messages,
-            "temperature": 0.7
-        }
-
-        response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers=headers,
-            json=data
-        )
-        response.raise_for_status()
-
-        result = response.json()
-        return result["choices"][0]["message"]["content"]
-
-    except Exception as e:
-        logger.error(f"LLM inference failed: {str(e)}")
-        raise
-
 def generate_agent_code(step: Dict[str, Any], model_name: str = "gpt-4o") -> str:
-    """Generate agent code using LLM."""
-    try:
-        messages = [
-            {"role": "system", "content": """You are an expert Python developer specializing in creating workflow agents.
+    """
+    Generates agent code from a workflow step.
+    """
+    messages = [
+        {"role": "system", "content": """You are an expert Python developer specializing in creating workflow agents.
             Your task is to generate a Python agent file that follows this EXACT structure:
 
             # Required imports
             import os
             import json
             import logging
-            import requests
             from typing import Dict, Any, List
+            import requests
 
             # Configure logging
             logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -115,7 +87,8 @@ def generate_agent_code(step: Dict[str, Any], model_name: str = "gpt-4o") -> str
                     data = {
                         "model": model_name,
                         "messages": messages,
-                        "temperature": 0.7
+                        "temperature": 0.7,
+                        "max_tokens": 2000
                     }
 
                     response = requests.post(
@@ -249,52 +222,50 @@ def generate_agent_code(step: Dict[str, Any], model_name: str = "gpt-4o") -> str
             9. Log LLM interactions
 
             Output only the Python code for the agent file. Do not include any markdown or explanatory text outside the code."""},
-            {"role": "user", "content": json.dumps({"step": step}, ensure_ascii=False)}
-        ]
-        
-        agent_code = run_inference(messages, model_name)
-        
-        # Clean up any markdown code blocks or extra text
-        agent_code = agent_code.replace("```python", "").replace("```", "").strip()
-        
-        return agent_code
-        
-    except Exception as e:
-        logger.error(f"Failed to generate agent code: {str(e)}")
-        raise
+        {"role": "user", "content": json.dumps({"step": step}, ensure_ascii=False)}
+    ]
+    agent_code = run_inference(messages, model_name)    
+    # Clean up any markdown code blocks or extra text
+    agent_code = agent_code.replace("```python", "").replace("```", "").strip()
+    return agent_code
 
-def create_agent_file(step: Dict[str, Any], agent_file_path: str, model_name: str = "gpt-4o") -> Dict[str, Any]:
-    """Creates an agent file using the generated code."""
-    steps_log = []
-    errors_log = []
-    
-    try:
-        # Generate agent code
-        agent_code = generate_agent_code(step, model_name)
+def push_agent(
+    step: Dict[str, Any],
+    code: str
+) -> str:
+    """
+    Pushes agent to database.
+    First generates agent's response using LLM, then extracts schemas and env vars from code.
+    """
+
+    code = code.replace("```python", "").replace("```", "").strip()
         
-        # Write the file
-        output_dir = os.path.dirname(agent_file_path)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-        with open(agent_file_path, 'w', encoding="utf-8") as f:
-            f.write(agent_code)
-            
-        steps_log.append(f"✓ Created agent file: {os.path.basename(agent_file_path)}")
-        return {
-            "path": agent_file_path,
-            "status": "success",
-            "error": "",
-            "steps_log": steps_log,
-            "errors_log": errors_log
-        }
-    except Exception as e:
-        error_msg = f"Failed to create agent file {os.path.basename(agent_file_path)}: {str(e)}"
-        errors_log.append(error_msg)
-        steps_log.append(f"✗ {error_msg}")
-        return {
-            "path": agent_file_path,
-            "status": "error",
-            "error": error_msg,
-            "steps_log": steps_log,
-            "errors_log": errors_log
-        }
+    # Extract schemas and env vars from code
+    # extract_messages = [
+    #     {"role": "system", "content": "Extract INPUT_SCHEMA, OUTPUT_SCHEMA, and REQUIRED_ENV_VARS from the code. Return as JSON with input_schema, output_schema, and env_list fields."},
+    #     {"role": "user", "content": code}
+    # ]
+    # # extract_response = run_inference(extract_messages, model_name="gpt-4o")
+    # extracted = json.loads(extract_response)
+    
+    # Create agent object with the response
+    agent = {
+        "timestamp": datetime.utcnow(),
+        "name": step["label"],
+        "description": step["description"],
+        "task": step["description"],
+        "integrations": step["integrations"],
+        # "system": "",
+        "model_name": "gpt-4o",
+        # "input_schema": extracted["input_schema"],
+        # "output_schema": extracted["output_schema"],
+        "code": code,
+        "code_language": "python",
+        "command": f"python {step['label'].lower().replace(' ', '_')}.py",
+        # "env_list": extracted["env_list"]
+    }
+    
+    db = get_db()
+    result = db.agents.insert_one(agent)
+    return str(result.inserted_id)
+
