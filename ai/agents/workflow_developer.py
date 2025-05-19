@@ -5,25 +5,25 @@ from datetime import datetime
 import re # For sanitizing filenames
 from ai.llm.inference import run_inference
 import requests
-from ai.agents.agent_developer import generate_agent_code
+from ai.agents.agent_developer import generate_agent_code, push_agent
 from ai.agents.project_artifact_generator import generate_project_artifacts
+from ai.db.mongodb import get_db
 
-def generate_unique_project_name(workflow_design_steps: List[Dict[str, Any]]) -> str:
-    """Generates a unique project name based on the first step's label and a timestamp."""
+def generate_unique_project_name(workflow_design_steps: List[Dict[str, Any]], model_name: str = "gpt-4o") -> str:
+    """Generates a unique project name using LLM based on workflow steps."""
+    try:
+        messages = [
+            {"role": "system", "content": "Generate a short, descriptive name for this workflow. Return only the name, no explanation. Keep it under 30 chars. Use lowercase with underscores, no spaces."},
+            {"role": "user", "content": json.dumps(workflow_design_steps, ensure_ascii=False)}
+        ]
+        name = run_inference(messages, model_name).strip().lower().replace(' ', '_')
+    except Exception as e:
+        print(f"Warning: Failed to generate name with LLM: {str(e)}")
+        # Fallback to using first step's label
+        name = workflow_design_steps[0]["label"].lower().replace(' ', '_')
+    
     timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
-    if not workflow_design_steps or not workflow_design_steps[0].get("label"):
-        action_label = "generic_workflow"
-    else:
-        action_label = workflow_design_steps[0]["label"].lower()
-
-    action_label = re.sub(r'[^\w-]', '_', action_label)
-    action_label = re.sub(r'_+', '_', action_label).strip('_')
-    action_label = action_label[:30]
-
-    if not action_label:
-        action_label = "workflow"
-
-    return f"{action_label}_{timestamp}"
+    return f"{name}_{timestamp}"
 
 def create_agent_file(step: Dict[str, Any], agent_file_path: str, model_name: str = "gpt-4o") -> Dict[str, Any]:
     """Creates an agent file using LLM to generate the code."""
@@ -76,7 +76,8 @@ def create_workflow_project(
         "message": "",
         "details": {
             "agents_generated": [],
-            "project_artifacts_status": None
+            "project_artifacts_status": None,
+            "agent_ids": []  # Track agent IDs
         },
         "log": [],
         "errors": []
@@ -89,7 +90,7 @@ def create_workflow_project(
         if not workflow_design_steps:
             raise ValueError("Workflow design steps list cannot be empty.")
 
-        project_name = generate_unique_project_name(workflow_design_steps)
+        project_name = generate_unique_project_name(workflow_design_steps, model_name)
         overall_status["project_name"] = project_name
         project_dir_path = os.path.join(base_project_dir, project_name)
         overall_status["project_dir"] = project_dir_path
@@ -115,6 +116,10 @@ def create_workflow_project(
             agent_file_path = os.path.join(project_dir_path, agent_filename)
 
             print(f"\nCreating agent: {agent_base_label}")
+            code = generate_agent_code(step_details, model_name)
+            agent_id = push_agent(step_details, code)
+            overall_status["details"]["agent_ids"].append(agent_id)
+            
             agent_result = create_agent_file(step_details, agent_file_path, model_name)
 
             for log_entry in agent_result.get("steps_log", []):
@@ -201,7 +206,7 @@ def create_workflow_project(
         print(f"\n✗ CRITICAL ERROR: {error_msg}")
         return overall_status
 
-def run_develop_workflow(workflow_design: List[Dict[str, Any]], model_name: str = "gpt-4o") -> str:
+def run_develop_workflow(workflow_design: List[Dict[str, Any]], model_name: str = "gpt-4o", chat_id: str = None) -> str:
     """
     Main entry point to develop the workflow.
     Returns a JSON string summarizing the outcome.
@@ -219,6 +224,17 @@ def run_develop_workflow(workflow_design: List[Dict[str, Any]], model_name: str 
         return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     result = create_workflow_project(workflow_design_steps=workflow_design, model_name=model_name)
+    
+    # Push workflow to database
+    if result["status"] == "success":
+        db = get_db()
+        workflow = {
+            "type": "tree",
+            "nodeList": result["details"]["agent_ids"],  # Use tracked agent IDs
+            **result  # Include all attributes from project response
+        }
+        db.workflows.insert_one(workflow)
+    
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
