@@ -9,7 +9,7 @@ from ai.agents.agent_developer import generate_agent_code, push_agent
 from ai.agents.project_artifact_generator import generate_project_artifacts
 from ai.db.mongodb import get_db
 
-def generate_unique_project_name(workflow_design_steps: List[Dict[str, Any]], model_name: str = "gpt-4o") -> str:
+def generate_unique_project_name(workflow_design_steps: List[Dict[str, Any]], model_name: str = "gpt-4") -> str:
     """Generates a unique project name using LLM based on workflow steps."""
     try:
         messages = [
@@ -25,7 +25,7 @@ def generate_unique_project_name(workflow_design_steps: List[Dict[str, Any]], mo
     timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
     return f"{name}_{timestamp}"
 
-def create_agent_file(step: Dict[str, Any], agent_file_path: str, model_name: str = "gpt-4o") -> Dict[str, Any]:
+def create_agent_file(step: Dict[str, Any], agent_file_path: str, model_name: str = "gpt-4") -> Dict[str, Any]:
     """Creates an agent file using LLM to generate the code."""
     steps_log = []
     errors_log = []
@@ -63,7 +63,7 @@ def create_agent_file(step: Dict[str, Any], agent_file_path: str, model_name: st
 def create_workflow_project(
     workflow_design_steps: List[Dict[str, Any]],
     base_project_dir: str = "generated_workflows",
-    model_name: str = "gpt-4o"
+    model_name: str = "gpt-4"
 ) -> Dict[str, Any]:
     """
     Creates the full workflow project structure, including agent files and project artifacts.
@@ -206,7 +206,7 @@ def create_workflow_project(
         print(f"\n✗ CRITICAL ERROR: {error_msg}")
         return overall_status
 
-def run_develop_workflow(workflow_design: List[Dict[str, Any]], model_name: str = "gpt-4o", chat_id: str = None) -> str:
+def run_develop_workflow(workflow_design: List[Dict[str, Any]], model_name: str = "gpt-4", chat_id: str = None) -> str:
     """
     Main entry point to develop the workflow.
     Returns a JSON string summarizing the outcome.

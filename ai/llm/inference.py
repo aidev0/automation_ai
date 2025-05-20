@@ -57,8 +57,8 @@ def run_inference(messages: list[dict], model_name: str) -> str:
         ValueError: If the model provider cannot be determined or API key is missing.
         Exception: For API-related errors.
     """
-    print(f"Attempting inference with model: {model_name}")
-    print(f"Input messages: {messages}")
+    # print(f"Attempting inference with model: {model_name}")
+    # print(f"Input messages: {messages}")
 
     # Determine the provider based on the model_name (simplified heuristic)
     provider = None
@@ -116,6 +116,7 @@ def run_inference(messages: list[dict], model_name: str) -> str:
                 return "Error: No valid messages to send to Gemini."
 
             response = model.generate_content(chat_history_for_google)
+            print(f"Google Gemini Response: {response.text}")
             return response.text
 
         elif provider == "openai":
@@ -130,6 +131,7 @@ def run_inference(messages: list[dict], model_name: str) -> str:
                 model=model_name,
                 messages=messages # Directly use the input messages
             )
+            print(f"OpenAI Response: {response.choices[0].message.content}")
             return response.choices[0].message.content
 
         elif provider == "anthropic":
@@ -163,6 +165,7 @@ def run_inference(messages: list[dict], model_name: str) -> str:
                 system=system_prompt if system_prompt else None, # Pass system prompt if it exists
                 messages=anthropic_messages
             )
+            print(f"Anthropic Response: {response}")
             return response.content[0].text
 
     except ValueError as ve: # Catch our own ValueErrors for API keys etc.

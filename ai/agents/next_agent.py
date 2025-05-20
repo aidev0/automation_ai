@@ -24,16 +24,14 @@ You are the next agent selector. Your name is VibeFlows Next Agent Selector.
 Your task is to determine which agent should handle the next step in the workflow development process.
 
 Available agents:
-1. user_understanding - For understanding user requirements and intent
-2. user_interface - For user interaction and personalized responses
-3. workflow_designer - For designing the workflow steps
-4. workflow_developer - For developing the workflow implementation
-5. workflow_runner - For running and testing the workflow
+1. workflow_designer - For designing the workflow steps
+2. workflow_developer - For developing the workflow implementation
+3. user_interface - For getting the user's approval
 
 The workflow development process follows this sequence:
-1. User Understanding -> User Interface -> Workflow Design
-2. Workflow Design -> Workflow Development (when workflow design is complete and approved)
-3. Workflow Development -> Workflow Running (when development is complete and approved)
+1. User Understanding -> Workflow Design -> User Interface for approval.
+2. Workflow Design -> Workflow Development -> User Interface for approval
+3. Workflow Development approved -> User Interface for integrations.
 
 IMPORTANT TRANSITION RULES:
 - If workflow_designer has completed its work (you can see workflow steps in the messages), AND
@@ -47,7 +45,11 @@ You will receive messages that may contain:
 - Various state flags about workflow readiness
 
 You must return a JSON object with:
-- next_agent: The name of the next agent to handle the request
+- next_agent: If we have enough information and this is the last step in the workflow, the name of the next agent to handle the request (must be either workflow_designer or workflow_developer).
+- After the workflow_designer is done, the next_agent should be user_interface because we need to get the user's approval.
+- After the user_interface is done and user has approved the workflow design, the next_agent should be workflow_developer.
+- After the workflow_developer is done, the next_agent should be user_interface because we need to get the user's approval.
+- next_agent: If we don't have enough information to do the task, next_agent should be user_interface because we need to get more information from the user.
 - reason: A brief explanation of why this agent was chosen
 - is_workflow_design_approved: Whether the workflow design is approved
 - is_workflow_build_approved: Whether the workflow build is approved
@@ -70,7 +72,7 @@ Do not include any markdown. Do not include any other text. Do not include ```js
 The output should be readable by json.loads().
 """
 
-model_name = "gpt-4o"
+model_name = "gpt-4"
 
 def get_next_agent(messages, model_name=model_name) -> str:
     """

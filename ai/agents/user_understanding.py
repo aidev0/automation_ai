@@ -80,7 +80,7 @@ Do not incude any markdown. Do not include any other text. Do not include ```jso
 The output should be readable by json.loads().
 """
 
-model_name = "gpt-4o"
+model_name = "gpt-4"
 
 def get_user_understanding(messages: List[Dict[str, Any]], model_name=model_name) -> str:
     """
@@ -95,87 +95,29 @@ def get_user_understanding(messages: List[Dict[str, Any]], model_name=model_name
         try:
             response = run_inference(full_messages, model_name=model_name)
             
-            # Create a dictionary with the required structure
-            result = {
-                "user_understanding": "",
-                "problem_understanding": "",
-                "workflow_tech_understanding": "",
-                "user_tech_list": [],
-                "required_tech_list": [],
-                "user_last_message_intent": "",
-                "clarification_questions": [],
-                "is_user_clarification_needed": False,
-                "is_workflow_design_approved": False,
-                "is_workflow_build_approved": False,
-                "do_we_have_enough_information_to_develop_workflow": False,
-                "do_we_have_enough_information_to_design_workflow": False,
-                "do_we_have_enough_information_to_run_workflow": False
-            }
-            
-            # Try to extract information from the response
+            # Try to parse as JSON
             try:
-                # First try to parse as JSON
                 parsed = json.loads(response)
-                result.update(parsed)
-            except json.JSONDecodeError:
-                # If not JSON, try to extract information from text
-                lines = response.split('\n')
-                for line in lines:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    
-                    # Try to match key-value pairs
-                    if ':' in line:
-                        key, value = line.split(':', 1)
-                        key = key.strip().lower().replace(' ', '_')
-                        value = value.strip()
-                        
-                        # Map the key to our schema
-                        if key in result:
-                            if isinstance(result[key], list):
-                                # Handle lists
-                                if value.startswith('[') and value.endswith(']'):
-                                    try:
-                                        result[key] = json.loads(value)
-                                    except:
-                                        result[key] = [v.strip() for v in value[1:-1].split(',')]
-                                else:
-                                    result[key] = [value]
-                            elif isinstance(result[key], bool):
-                                # Handle booleans
-                                result[key] = value.lower() in ['true', 'yes', '1']
-                            else:
-                                # Handle strings
-                                result[key] = value
-            
-            # Convert to JSON string
-            return json.dumps(result, ensure_ascii=False)
+                return json.dumps(parsed, ensure_ascii=False)
+            except json.JSONDecodeError as e:
+                print(f"Attempt {attempt + 1}: JSON Parse Error: {e}")
+                error_message = {
+                    "role": "assistant",
+                    "content": f"Your response could not be parsed as JSON. Please provide your response in valid JSON format. Error: {e}"
+                }
+                messages.append(error_message)
+                continue
                     
         except Exception as e:
             print(f"Attempt {attempt + 1}: Error: {e}")
-            error_message = {
-                "role": "assistant",
-                "content": f"An error occurred. Please provide your response in a clear format with key-value pairs. Error: {e}"
-            }
-            messages.append(error_message)
-            continue
-    
-    # If all attempts fail, return default response
-    default_response = {
-        "user_understanding": "Error: Could not parse user understanding",
-        "problem_understanding": "Error: Could not parse problem understanding",
-        "workflow_tech_understanding": "Error: Could not parse workflow tech understanding",
-        "user_tech_list": [],
-        "required_tech_list": [],
-        "user_last_message_intent": "Error: Could not parse intent",
-        "clarification_questions": ["Could you please rephrase your request?"],
-        "is_user_clarification_needed": True,
-        "is_workflow_design_approved": False,
-        "is_workflow_build_approved": False,
-        "do_we_have_enough_information_to_develop_workflow": False,
-        "do_we_have_enough_information_to_design_workflow": False,
-        "do_we_have_enough_information_to_run_workflow": False
-    }
-    return json.dumps(default_response, ensure_ascii=False)
+            # If an error occurred, attempt again
+            if attempt < 2:  # Check if we have more attempts left
+                print(f"Retrying... Attempt {attempt + 2}")
+                error_message = {
+                    "role": "assistant",
+                    "content": f"An error occurred. Please provide your response in a clear format with key-value pairs. Error: {e}"
+                }
+                messages.append(error_message)
+                continue
 
+    

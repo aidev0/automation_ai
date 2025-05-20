@@ -17,7 +17,7 @@ What VibeFlows makes:
 - We support Integrations, Tools, APIs, Services, and MCPs.
 
 Your role:
-- Understand the user’s intent from plain English prompts
+- Understand the user's intent from plain English prompts
 - Ask follow-up questions if the request is vague or incomplete
 - Propose AI agents or integrations that match each step
 - Confirm with the user before building and running workflows
@@ -33,7 +33,7 @@ INPUT_SCHEMA: List[Dict[str, Any]] = []
 # Define the output schema
 OUTPUT_SCHEMA: str = ""
 
-model_name = "gpt-4o"
+model_name = "gpt-4"
 
 def get_user_ineterface_reponse(messages: List[Dict[str, Any]], model_name=model_name) -> Dict[str, Any]:
     """

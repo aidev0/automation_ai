@@ -58,7 +58,7 @@ Do not include any markdown. Do not include any other text. Do not include ```js
 The output should be readable by json.loads().
 """
 
-model_name = "gpt-4o"
+model_name = "gpt-4"
 
 def design_workflow(messages: List[Dict[str, Any]], model_name=model_name) -> str:
     """
