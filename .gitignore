@@ -18,3 +18,4 @@ venv/
 workflows/*
 *workflows/*
 generated_workflows/*
+*/generated_workflows/*
